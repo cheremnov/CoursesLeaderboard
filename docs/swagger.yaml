@@ -1,0 +1,1611 @@
+openapi: 3.0.0
+info:
+  title: Courses Leaderboard API
+  description: Describes the API for the server with CMC MSU Courses reviews.
+  version: 0.1.0
+servers:
+  - url: 'http://{SERVER_URL}/api'
+  - url: 'https://{SERVER_URL}/api'
+tags:
+  - name: "courses"
+    description: "MSU courses"
+  - name: "comments"
+    description: |
+      Users' comments on courses. Two categories: reactions and reviews.
+      Users react to current events (such as lectures or exams) by posting short messages,
+      called reactions. A review encompasses the entire course, summarizing positive and
+      negative experiences.
+  - name: "events"
+    description: "Course events happening during the semester, such as lectures or exams."
+  - name: "ratings"
+    description: "Courses or events ratings on scale from 1 to 10."
+  - name: "tokens"
+    description: "JWT tokens. Can't create from the client side."
+  - name: "users"
+    description: "System users"
+paths:
+  /courses:
+    get:
+      tags:
+        - "courses"
+      summary: |
+        Gets the courses.
+        
+        May filter by semester.
+      parameters:
+      - name: semester
+        in: query
+        schema:
+          type: string
+          example: "Осень 2021"
+      - name: pageStart
+        in: query
+        schema:
+          type: integer
+          example: 10
+      - name: pageSize
+        in: query
+        schema:
+          type: integer
+          example: 10
+      responses:
+        '200':
+          description: Fetched the requested courses
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  _links:
+                    $ref: '#/components/schemas/PageLinks'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+                  courses:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Course'
+                example:
+                  _links:
+                    prev: '/api/courses?pageStart=0&pageSize=10&semester=%D0%9E%D1%81%D0%B5%D0%BD%D1%8C%202021'
+                    self: '/api/courses?pageStart=10&pageSize=10&semester=%D0%9E%D1%81%D0%B5%D0%BD%D1%8C%202021'
+                    next: '/api/courses?pageStart=20&pageSize=10&semester=%D0%9E%D1%81%D0%B5%D0%BD%D1%8C%202021'
+                  pagination:
+                    pageStart: 10
+                    pageSize: 10
+                    itemsAvailable: 100
+                  courses:
+                    - id: 51
+                      name: "Линейная алгебра"
+                      semester: "Осень 2021"
+    post:
+      tags:
+        - "courses"
+      summary: Adds a new course.
+      security:
+      - JWT: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Course'
+            examples:
+              discreteMath:
+                value:
+                  id: 56
+                  name: "Дискретная математика"
+                  description: "Базовый курс по дискретной математике"
+                  semester: "Осень 2021"
+      responses:
+        '200':
+          description: "Added the course"
+        '401':
+          $ref: '#/components/responses/UnauthorizedRequestError'
+
+  /courses/${courseId}/full:
+    get:
+      tags:
+        - "courses"
+      summary: |
+        Gets the course and related to it comments and ratings ("fat" DTO):
+        
+        If specified @fetchVoteOf, fetches how the voter
+        rated the comments and the course.
+      parameters:
+      - name: courseId
+        in: path
+        schema:
+          type: integer
+          example: 23
+          minimum: 1
+        required: true
+      - name: fetchVoteOf
+        description: Id of the voter to fetch the votes of
+        in: query
+        schema:
+          type: integer
+          example: 14
+      responses:
+        '200':
+          description: Fetched the given course and related votes.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reviews:
+                    $ref: '#/components/schemas/PageComments'
+                  reactions:
+                    description: A set of user reactions for the course.
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        event:
+                          $ref: '#/components/schemas/Event'
+                        comments:
+                          $ref: '#/components/schemas/PageReactions'
+                  totalRatings:
+                    description: Total ratings statistics per course and per course event.
+                    type: object
+                    properties:
+                      courseRatings:
+                        allOf:
+                          - $ref: '#/components/schemas/RatingStats'
+                        example:
+                          ratingsCnt: 2
+                          ratingsAvg: 5.5
+                          ratingsDistribution:
+                            1: 1
+                            10: 1
+                          courseId: 23
+                      eventRatings:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/RatingStats'
+                        example:
+                        - ratingsCnt: 1
+                          ratingsAvg: 10
+                          ratingsDistribution:
+                            10: 1
+                          courseId: 23
+                          eventId: 11
+                  voterRating:
+                    description: The @fetchVoteOf voter's ratings
+                    type: object
+                    properties:
+                      courseRating:
+                        $ref: '#/components/schemas/Rating'
+                      eventRatings:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Rating'
+                    example:
+                      courseRating:
+                        courseId: 23
+                        date: "2021-12-06 10:00:00"
+                        rating: 9
+                      eventRatings:
+                        items:
+                          - courseId: 23
+                            eventId: 11
+                            date: "2021-12-06 10:00:00"
+                            rating: 7
+        '404':
+          $ref: '#/components/responses/InvalidRequestError'
+
+                
+  /courses/${courseId}:
+    get:
+      summary: Gets the course with the given id
+      tags:
+        - "courses"
+      parameters:
+      - name: courseId
+        in: path
+        schema:
+          type: integer
+          example: 1
+          minimum: 1
+        required: true
+        example: 23
+      responses:
+        '200':
+          description: "Fetched the course"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Course'
+        '404':
+          $ref: '#/components/responses/InvalidRequestError'
+    put:
+      tags:
+        - "courses"
+      summary: Updates the course with the given id.
+      security:
+      - JWT: []
+      parameters:
+      - name: courseId
+        in: path
+        schema:
+          type: integer
+          example: 1
+        required: true
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - $ref: '#/components/schemas/Course'
+              example:
+                name: "Математический анализ"
+                description: "Базовый курс по математическому анализу"
+                semester: "Осень 2021"
+      responses:
+        '200':
+          description: Successfully updated the course.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Course'
+        '401':
+          $ref: '#/components/responses/UnauthorizedRequestError'
+        '404':
+          $ref: '#/components/responses/InvalidRequestError'
+    delete:
+      summary: Deletes the course with the given id.
+      tags:
+         - "courses"
+      security:
+      - JWT: []
+      parameters:
+      - name: courseId
+        in: path
+        schema:
+          type: integer
+          example: 23
+        required: true
+      responses:
+        '204':
+          description: Successfully deleted the course.
+        '401':
+          $ref: '#/components/responses/UnauthorizedRequestError'
+        '404':
+          $ref: '#/components/responses/InvalidRequestError' 
+               
+  /comments/${commentId}/karma:
+    get:
+      tags:
+        - "comments"
+      summary: |
+        Gets votes cast to the comment.
+      parameters:
+      - name: commentId
+        in: path
+        schema:
+          type: integer
+          minimum: 1
+          example: 15
+        required: true
+      - name: voterId
+        in: query
+        schema:
+          type: integer
+          example: 14
+          minimum: 1
+        required: true
+      responses:
+        '200':
+          description: 'Fetched casted votes'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentKarmaVote'
+        '404':
+          $ref: '#/components/responses/InvalidRequestError'
+    post:
+      tags:
+        - "comments"
+      security:
+      - JWT: []
+      summary: |
+        Casts a vote for the comment.
+      parameters:
+      - name: commentId
+        in: path
+        schema:
+          type: integer
+          minimum: 1
+          example: 15
+        required: true
+      - name: voterId
+        in: query
+        schema:
+          type: integer
+          example: 14
+          minimum: 1
+        required: true
+      responses:
+        '200':
+          description: 'Casted the vote'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentKarmaVote'
+        '401':
+          $ref: '#/components/responses/UnauthorizedRequestError'
+    delete:
+      tags:
+        - "comments"
+      security:
+      - JWT: []
+      summary: |
+        Removes the vote from the comment.
+      parameters:
+      - name: commentId
+        in: path
+        schema:
+          type: integer
+          minimum: 1
+          example: 15
+        required: true
+      - name: userId
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          example: 14
+        required: true
+      responses:
+        '204':
+          description: 'Successfully deleted'
+        '401':
+          $ref: '#/components/responses/UnauthorizedRequestError'
+  /comments/${commentId}/approval:
+    post:
+      tags:
+        - "comments"
+      security:
+      - JWT: []
+      summary: |
+        Moderator-only. Approves or disapproves the comment.
+      parameters:
+      - name: commentId
+        in: path
+        schema:
+          type: integer
+          minimum: 1
+          example: 51
+        required: true
+      - name: isCommentApproved
+        in: query
+        schema:
+          type: boolean
+          minimum: 1
+          example: true
+        required: true
+      responses:
+        '200':
+          description: 'Approved the comment'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+        '401':
+          $ref: '#/components/responses/UnauthorizedRequestError'
+        '403':
+          description: "Forbidden. Perhaps lacking moderator privilege."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMessage'
+              example:
+                code: 403
+                message: "A current user isn't a moderator. Can't approve the comment."
+        '404':
+          $ref: '#/components/responses/InvalidRequestError'
+  /comments:
+    get:
+      tags:
+        - "comments"
+      summary: |
+        Gets the comments.
+        
+        May filter by based on courseId, eventId.
+        
+        Sorts the comments by their timestamp, newest first.
+        
+        If the userId supplied, gets the relevant information, such
+        as how the user rated the course and changed comments karma.
+      parameters:
+      - name: courseId
+        in: query
+        schema:
+          type: integer
+          example: 15
+        required: true
+      - name: pageStart
+        in: query
+        schema:
+          type: integer
+          example: 10
+      - name: pageSize
+        in: query
+        schema:
+          type: integer
+          example: 10
+      - name: courseType
+        in: query
+        schema:
+          type: string
+          enum: ["reaction", "review"]
+      - name: eventId
+        in: query
+        schema:
+          type: integer
+          example: 32
+      - name: voterId
+        in: query
+        schema:
+          type: integer
+          example: 14
+      responses:
+        '200':
+          description: Fetched the comments with the given pagination.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  _links:
+                    oneOf:
+                      - $ref: '#/components/schemas/PageLinks'
+                    example:
+                      self: "/api/comments?courseId=15&pageStart=10&pageSize=10&eventId=32&voterId=14"
+                      prev: "/api/comments?courseId=15&pageStart=0&pageSize=10&eventId=32&voterId=14"
+                      next: "/api/comments?courseId=15&pageStart=20&pageSize=10&eventId=32&voterId=14"
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+                  comments:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Comment'
+    post:
+      tags:
+        - "comments"
+      summary: Creates a new comment.
+      security:
+      - JWT: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Comment'
+      responses:
+        '200':
+          description: "Created the comment"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'  
+        '401':
+          $ref: '#/components/responses/UnauthorizedRequestError'
+    
+  /comments/${commentId}:
+    get:
+      summary: Get the comment with the given id
+      tags:
+        - "comments"
+      parameters:
+      - name: commentId
+        in: path
+        schema:
+          type: integer
+          example: 23
+          minimum: 1
+        required: true
+      responses:
+        '200':
+          description: "Fetched the comment"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+        '404':
+          $ref: '#/components/responses/InvalidRequestError'
+    put:
+      tags:
+        - "comments"
+      summary: |
+        Updates the comment with the given id.
+        Even a moderator can't edit other people's comments
+      security:
+      - JWT: []
+      parameters:
+      - name: commentId
+        in: path
+        schema:
+          type: integer
+          example: 51
+        required: true
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/Comment'
+              example:
+                courseId: 23
+                contentType: "review"
+                commentText: "Великолепный курс"
+                karma: 2
+      responses:
+        '200':
+          description: Successfully updated the comment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+        '401':
+          $ref: '#/components/responses/UnauthorizedRequestError'
+        '403':
+          description: "Forbidden. Perhaps attempting to edit the another person's comment"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMessage'
+              example:
+                code: 403
+                message: "Can't edit the other person's comment."
+        '404':
+          $ref: '#/components/responses/InvalidRequestError'
+    delete:
+      summary: Deletes the comment with the given id.
+      tags:
+         - "comments"
+      security:
+      - JWT: []
+      parameters:
+      - name: commentId
+        in: path
+        schema:
+          type: integer
+          example: 51
+        required: true
+      responses:
+        '204':
+          description: Successfully deleted the comment.
+        '401':
+          $ref: '#/components/responses/UnauthorizedRequestError'
+        '403':
+          description: "Forbidden. Perhaps attempting to delete other person's comment."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMessage'
+              example:
+                code: 403
+                message: "A current user isn't a moderator. Can't approve the comment."
+        '404':
+          $ref: '#/components/responses/InvalidRequestError' 
+                
+  /events:
+    get:
+      tags:
+        - "events"
+      summary: |
+        Gets the events by courseId
+      parameters:
+      - name: courseId
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          example: 23
+        required: true
+      responses:
+        '200':
+          description: |
+            Fetched the events
+            
+            Assumed there aren't enough events to justify pagination
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Event'
+    post:
+      tags:
+        - "events"
+      summary: |
+        Moderator-only. Creates a new event for the given course.
+      security:
+      - JWT: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Event'   
+      responses:
+        '200':
+          description: "Created the event"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'  
+        '401':
+          $ref: '#/components/responses/UnauthorizedRequestError'              
+
+  /events/${eventId}:
+    get:
+      summary: Get the event with the given id
+      tags:
+        - "events"
+      parameters:
+      - name: eventId
+        in: path
+        schema:
+          type: integer
+          minimum: 1
+          example: 11
+        required: true
+      responses:
+        '200':
+          description: "Fetched the event"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+        '404':
+          $ref: '#/components/responses/InvalidRequestError'
+    put:
+      tags:
+        - "events"
+      summary: Updates the event with the given id.
+      security:
+      - JWT: []
+      parameters:
+      - name: eventId
+        in: path
+        schema:
+          type: integer
+          example: 11
+        required: true
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/Event'
+              example:
+                courseId: 23
+                description: "Лекция 4"
+                startDate: "23-11-2021 10:00:00"
+      responses:
+        '200':
+          description: Successfully updated the event.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+        '401':
+          $ref: '#/components/responses/UnauthorizedRequestError'
+        '404':
+          $ref: '#/components/responses/InvalidRequestError'
+    delete:
+      summary: Deletes the event with the given id.
+      tags:
+         - "events"
+      security:
+      - JWT: []
+      parameters:
+      - name: eventId
+        in: path
+        schema:
+          type: integer
+          example: 11
+        required: true
+      responses:
+        '204':
+          description: Successfully deleted the event.
+        '401':
+          $ref: '#/components/responses/UnauthorizedRequestError'
+        '404':
+          $ref: '#/components/responses/InvalidRequestError'
+   
+  /ratings:   
+    post:
+      tags:
+        - "ratings"
+      summary: Creates a new rating for the given course or course event.
+      security:
+      - JWT: []
+      parameters:
+      - name: userId
+        in: query
+        schema:
+          type: integer
+          example: 10
+        required: true
+      - name: courseId
+        in: query
+        schema:
+          type: integer
+          example: 23
+        required: true
+      - name: eventId
+        in: query
+        schema:
+          type: integer
+          example: 11
+      - name: rating
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 10
+        required: true
+      responses:
+        '200':
+          description: "Added the rating"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Rating'
+        '401':
+          $ref: '#/components/responses/UnauthorizedRequestError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/InvalidRequestError'
+  
+  /ratings/rating:
+    get:
+      tags:
+        - "ratings"
+      summary: |
+        If an API user didn't supply @eventId, fetches the course rating.
+        Otherwise, the course event rating.
+      parameters:
+      - name: userId
+        in: query
+        schema:
+          type: integer
+          example: 10
+        required: true
+      - name: courseId
+        in: query
+        schema:
+          type: integer
+          example: 23
+        required: true
+      - name: eventId
+        in: query
+        schema:
+          type: integer
+          example: 11
+      responses:
+        '200':
+          description: "Fetched the rating"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Rating'
+        '401':
+          $ref: '#/components/responses/UnauthorizedRequestError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/InvalidRequestError'  
+    delete:
+      tags:
+        - "ratings"
+      security:
+      - JWT: []
+      summary: |
+        If an API user didn't supply @eventId, deletes the course rating.
+        Otherwise, the course event rating.
+      parameters:
+      - name: userId
+        in: query
+        schema:
+          type: integer
+          example: 10
+        required: true
+      - name: courseId
+        in: query
+        schema:
+          type: integer
+          example: 23
+        required: true
+      - name: eventId
+        in: query
+        schema:
+          type: integer
+          example: 11
+      responses:
+        '204':
+          description: "Successfully deleted the rating"
+        '401':
+          $ref: '#/components/responses/UnauthorizedRequestError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/InvalidRequestError'  
+
+  /tokens:
+    get:
+      tags:
+        - "tokens"
+      summary: |
+        Retrieves the token for user.
+        Creates the new session.
+      parameters:
+        - in: header
+          name: Authentification
+          description: Credentials in JSON format.
+          schema:
+            $ref: '#/components/schemas/Credentials'
+          required: true
+      responses:
+        '200':
+          description: |
+           Successfully authenticated. Return the JWT token.
+           
+           Must include the token
+           in a header of all subsequent requests requiring authorization.
+          headers:
+            X-RateLimit-Limit:
+              schema:
+                type: integer
+                example: 5
+              description: Login attempts limits per hour.
+            X-RateLimit-Remaining:
+              schema:
+                type: integer
+                example: 4
+              description: The number of login attempts left for the hour.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                    description: "JWT token"
+                  user:
+                    $ref: '#/components/schemas/User'
+        '401':
+          description:
+            Supplied the invalid username or password.
+  /users:
+    get:
+      tags:
+        - "users"
+      summary: |
+        Gets the users.
+      parameters:
+      - name: pageStart
+        in: query
+        schema:
+          type: integer
+          example: 10
+      - name: pageSize
+        in: query
+        schema:
+          type: integer
+          example: 10
+      responses:
+        '200':
+          description: Fetched the requested users
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  _links:
+                    $ref: '#/components/schemas/PageLinks'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+                  users:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/User'
+                example:
+                  _links:
+                    prev: '/api/users?pageStart=0&pageSize=10'
+                    self: '/api/users?pageStart=10&pageSize=10'
+                    next: '/api/users?pageStart=20&pageSize=10'
+                  pagination:
+                    pageStart: 10
+                    pageSize: 10
+                    itemsAvailable: 100
+                  users:
+                    - id: 10
+                      username: Sad_Tomato
+                      isModerator: "false"
+    post:
+      tags:
+        - "users"
+      summary: |
+        Creates a user. Can't create the moderator via API
+        
+        Supports only university-provided email addresses.
+      requestBody:
+        required: true
+        description: A JSON object with authorization data
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Credentials'
+      responses:
+        '200':
+          description: "Created the user"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '403':
+          description: "Forbidden. Perhaps trying to create a moderator."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMessage'
+              example:
+                code: 403
+                message: "Can't create the moderator."
+  /users/${userId}:
+    get:
+      tags:
+        - "users"
+      summary: Gets the user with the given id
+      security:
+      - JWT: []
+      parameters:
+      - name: userId
+        in: path
+        schema:
+          type: integer
+          example: 10
+        required: true
+      responses:
+        '200':
+          description: Fetched the requested user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '404':
+          $ref: '#/components/responses/InvalidRequestError'
+    put:
+      tags:
+        - "users"
+      summary: Updates the user with the given id
+      security:
+      - JWT: []
+      parameters:
+      - name: userId
+        in: path
+        schema:
+          type: integer
+          example: 10
+        required: true
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/User'
+      responses:
+        '200':
+          description: |
+            Successfully updated the user.
+            
+            The user can update the information about themselves.
+            The moderator can update the information about any user,
+            but can't assign new privileges.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/UnauthorizedRequestError'
+        '403':
+          description: "Forbidden. Perhaps lacking moderator privilege."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/responses/ForbiddenError'
+              example:
+                code: 403
+                message: "A current user isn't a moderator. Can't approve the comment."
+        '404':
+          $ref: '#/components/responses/InvalidRequestError'
+    delete:
+      tags:
+         - "users"
+      summary: |
+        Deletes the user with the given id.
+        
+        The user can delete themselves.
+        The moderator can spam-clean users in several cases.
+      security:
+      - JWT: []
+      parameters:
+      - name: userId
+        in: path
+        schema:
+          type: integer
+          example: 10
+        required: true
+      responses:
+        '204':
+          description: Successfully deleted the user.
+        '401':
+          $ref: '#/components/responses/UnauthorizedRequestError'
+        '403':
+          description: "Forbidden. Perhaps lacking moderator privilege."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/responses/ForbiddenError'
+              example:
+                code: 403
+                message: "A current user isn't a moderator. Can't approve the comment."
+        '404':
+          $ref: '#/components/responses/InvalidRequestError'
+      
+  /users/${userId}/full:
+    get:
+      tags:
+        - "users"
+      summary: |
+        Gets the user, their comments and karma.
+        Use the "fat" Data Transfer Object.
+      parameters:
+      - name: userId
+        in: path
+        schema:
+          type: integer
+          example: 10
+          minimum: 1
+        required: true
+      responses:
+        '200':
+          description: Fetched the given course
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reviews:
+                    oneOf:
+                      - $ref: '#/components/schemas/PageComments'
+                    example:
+                      _links:
+                        prev: "/api/comments?userId=10&pageStart=0&pageSize=10&commentType=review"
+                        self: "/api/comments?userId=10&pageStart=10&pageSize=10&commentType=review"
+                        next: "/api/comments?userId=10&pageStart=20&pageSize=10&commentType=review"
+                      pagination:
+                        pageStart: 10
+                        pageSize: 10
+                        itemsAvailable: 100
+                      comments:
+                      - id: 45
+                        userId: 10
+                        courseId: 23
+                        commentType: "review"
+                        commentText: "Великолепный курс"
+                        karmaChangeType: "upvote"
+                  reactions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        event:
+                          $ref: '#/components/schemas/Event'
+                        comments:
+                          oneOf:
+                            - $ref: '#/components/schemas/PageReactions'
+                          example:
+                            _links:
+                              prev: "/api/comments?userId=10&pageStart=0&pageSize=10&commentType=reaction"
+                              self: "/api/comments?userId=10&pageStart=10&pageSize=10&commentType=reaction"
+                              next: "/api/comments?userId=10&pageStart=20&pageSize=10&commentType=reaction"
+                            pagination:
+                              pageStart: 10
+                              pageSize: 10
+                              itemsAvailable: 100
+                            comments:
+                            - id: 47
+                              userId: 10
+                              courseId: 23
+                              eventId: 11
+                              commentType: "reaction"
+                              commentText: "Замечательная лекция"
+                              karmaChangeType: "upvote"
+                  userRating:
+                    description: Get current user ratings per course and per course event.
+                    type: object
+                    properties:
+                      courseRatings:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Rating'
+                      eventRatings:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Rating'
+                  userKarma:
+                    $ref: '#/components/schemas/UserKarma'
+
+components:
+  examples:
+    paginationExample:
+      value:
+        pageStart: 10
+        pageSize: 10
+        itemsAvailable: 100
+    reactionExamplePositive:
+      value:
+        id: 30
+        userId: 11
+        eventId: 14
+        courseId: 29
+        commentType: "reaction"
+        commentText: "Wow, great lecture"
+    reactionExampleNegative:
+      value:
+        id: 35
+        userId: 15
+        eventId: 14
+        courseId: 29
+        commentType: "reaction"
+        commentText: "Too boring, dozed off"
+    reactionExampleNeutral:
+      value:
+        id: 42
+        userId: 41
+        eventId: 16
+        courseId: 29
+        commentType: "reaction"
+        commentText: "Not great, not terrible"
+    reactionLinksExample:
+      value:
+        prev: '/api/comments?pageStart=0&pageSize=10&commentType=reaction&fetchVoteOf=10'
+        self: '/api/comments?pageStart=10&pageSize=10&commentType=reaction&fetchVoteOf=10'
+        next: '/api/comments?pageStart=20&pageSize=10&commentType=reaction&fetchVoteOf=10'
+      summary: Navigation links to the reactions 
+    reviewExamplePositive:
+      value:
+        id: 3
+        userId: 11
+        courseId: 29
+        commentType: "review"
+        commentText: "Easy course, great teacher."
+    reviewExampleReplyPositive:
+      value:
+        id: 15
+        userId: 11
+        parentCommentId: 3
+        commentType: "review"
+        commentText: "Presentations were also great"
+    reviewLinksExample:
+      value:
+        prev: '/api/comments?pageStart=0&pageSize=10&commentType=review&fetchVoteOf=10'
+        self: '/api/comments?pageStart=10&pageSize=10&commentType=review&fetchVoteOf=10'
+        next: '/api/comments?pageStart=20&pageSize=10&commentType=review&fetchVoteOf=10'
+      summary: Navigation links to the reviews  
+  schemas:
+    Credentials:
+      type: "object"
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+      required:
+      - "username"
+      - "password"
+      example:
+        username: "Sad_Tomato"
+        password: "password"
+
+    Comment:
+      type: "object"
+      properties:
+        id:
+          type: "integer"
+          format: "int64"
+        eventId:
+          type: "integer"
+          format: "int64"
+        userId:
+          type: "integer"
+          format: "int64"
+        parentCommentId:
+          type: "integer"
+          format: "int64"
+        commentType:
+          type: "string"
+          enum: ["reaction", "review"]
+          description: ""
+        isCommentApproved:
+          type: "boolean"
+        commentText:
+          type: "string"
+        karma:
+          type: "integer"
+          format: "int64"
+      required:
+        - "id"
+        - "eventId"
+        - "userId"
+      example:
+        id: 51
+        courseId: 23
+        commentType: "review"
+        commentText: "Великолепный курс"
+        karma: 2
+
+    CommentKarmaVote:
+      type: "object"
+      description: "Any user can change the karma rating of the comment"
+      properties:
+        voterId:
+          type: "integer"
+          format: "int64"
+        commentId:
+          type: "integer"
+          format: "int64"
+        karmaChangeType:
+          type: "string"
+          description: "The way karma changed"
+          enum: ["None", "Upvote", "Downvote"]
+      required:
+        - "karmaGiverId"
+        - "commentId"
+      example:
+        voterId: 14
+        commentId: 15
+        karmaChangeType: "upvote"
+
+    Course:
+      type: "object"
+      properties:
+        id:
+          type: "integer"
+          format: "int64"
+        name:
+          type: "string"
+        description:
+          type: "string"
+        semester:
+          type: "string"
+      example:
+        id: "23"
+        name: "Математический анализ"
+        description: "Базовый курс по математическому анализу"
+        semester: "Осень 2021"
+
+    Event:
+      type: "object"
+      properties:
+        id:
+          type: "integer"
+          format: "int64"
+        courseId:
+          type: "integer"
+          format: "int64"
+        description:
+          type: "string"
+        startDate:
+          type: "string"
+          format: "date-time"
+        endDate:
+          type: "string"
+          format: "date-time"
+      required:
+      - "courseId"
+      example:
+        id: 11
+        courseId: 23
+        description: "Лекция 4"
+        startDate: "23-11-2021 10:00:00"
+        
+    
+    ErrorMessage:
+      type: "object"
+      properties:
+        code:
+          type: "integer"
+          format: "int64"
+        message:
+          type: "string"
+          example: "Supplied the invalid id!"
+    
+    Link:
+      type: object
+      description: |
+        Link to the single resource
+      properties:
+        contentType:
+          type: string
+        href:
+          type: string
+          format: uri
+          example: https://example.org/v1/examples/1
+      required:
+      - "href"
+      
+    PageLinks:
+      type: object
+      description: |
+        Navigation links for pagination
+      properties:
+        self:
+          $ref: '#/components/schemas/Link'
+        next:
+          $ref: '#/components/schemas/Link'
+        prev:
+          $ref: '#/components/schemas/Link'
+      required:
+        - "self"
+          
+    Pagination:
+      type: object
+      properties:
+        pageStart:
+          type: integer
+          example: 1
+          minimum: 1
+          description: Page number specifying the set of items to get.
+        pageSize:
+          type: integer
+          example: 10
+          minimum: 1
+          description: The size of the set of items
+        itemsAvailable:
+          type: integer
+          example: 100
+          minimum: 1
+          description: The size of the entire set of items
+    
+    PageComments:
+      description: |
+        A set of comments represented in the page format.
+        May include votes
+        Gets returned as the query result.
+        
+        Navigation links retain the parameters of the
+        initial request.
+        
+        For example, the query may specify characteristics
+        of comments to filter on, such as their type.
+        The navigation links will retain this filter.
+        
+        So, if requested a page of reactions via: .../api/comments?page=1&commentType=reaction,
+        then the pagination's next field links to: .../api/comments?page=2&commentType=reaction.
+      type: object
+      properties:
+        _links:
+          $ref: '#/components/schemas/PageLinks'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+        comments:
+          type: array
+          items:
+            allOf:
+              - $ref: '#/components/schemas/Comment'
+              - type: object
+                properties:
+                  karmaChangeType:
+                    description: |
+                      How the @fetchVoteOf voter rated the comment.
+                    type: "string"
+                    enum: ["None", "Upvote", "Downvote"]
+                    
+      example:
+        # Can't reuse examples in the individual parts
+        _links:
+          prev: '/api/comments?pageStart=0&pageSize=10&commentType=review'
+          self: '/api/comments?pageStart=10&pageSize=10&commentType=review'
+          next: '/api/comments?pageStart=20&pageSize=10&commentType=review'
+        pagination:
+          pageStart: 10
+          pageSize: 10
+          itemsAvailable: 100
+        comments:
+          - id: 3
+            userId: 11
+            courseId: 23
+            commentType: "review"
+            commentText: "Easy course, great teacher."
+            karmaChangeType: "upvote"
+          - id: 15
+            userId: 11
+            courseId: 23
+            parentCommentId: 3
+            commentType: "review"
+            commentText: "Presentations were also great"
+    
+    PageReactions:
+      oneOf:
+        - $ref: '#/components/schemas/PageComments'
+      example:
+        _links:
+          prev: '/api/comments?pageStart=0&pageSize=10&commentType=reaction'
+          self: '/api/comments?pageStart=10&pageSize=10&commentType=reaction'
+          next: '/api/comments?pageStart=20&pageSize=10&commentType=reaction'
+        pagination:
+          pageStart: 10
+          pageSize: 10
+          itemsAvailable: 100
+        comments:
+          - id: 30
+            userId: 11
+            eventId: 14
+            courseId: 23
+            commentType: "reaction"
+            commentText: "Wow, great lecture"
+          - id: 35
+            userId: 15
+            eventId: 14
+            courseId: 23
+            commentType: "reaction"
+            commentText: "Too boring, dozed off"
+    
+    PageRatings:
+      description: A set of ratings represented in the page format
+      type: object
+      properties:
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+        comments:
+          type: array
+          items:
+            $ref: '#/components/schemas/Comment'
+        
+    Rating:
+      type: "object"
+      properties:
+        id:
+          type: "integer"
+          format: "int64"
+        userId:
+          type: "integer"
+          format: "int64"
+        eventId:
+          type: "integer"
+          format: "int64"
+        courseId:
+          type: "integer"
+          format: "int64"
+        date:
+          type: "string"
+          format: "date-time"
+        rating:
+          type: "integer"
+          minimum: 1
+          maximum: 10
+      required:
+      - "userId"
+      - "courseId"
+      - "rating" 
+      example:
+        userId: 10
+        courseId: 23
+        eventId: 11
+        date: "2021-12-07 22:21:22"
+        rating: 10
+    
+    RatingStats:
+      type: "object"
+      description: |
+        Average user rating for this course (or event).
+        Distribution of user ratings: how many users gave this specific rating.
+      properties:
+        ratingsCnt:
+          type: "integer"
+          format: "int64"
+          example: 2
+        ratingsAvg:
+          type: "number"
+          format: "double"
+          minimum: 1
+          maximum: 10
+          example: 5.5
+        ratingsDistribution:
+          type: array
+          items:
+            type: integer
+            minimum: 0
+            additionalProperties:
+              type: "integer"
+              minimum: 1
+              maximum: 10
+            example:
+              1: 1
+              10: 1
+        courseId:
+          type: "integer"
+          format: "int64"
+        eventId:
+          type: "integer"
+          format: "int64"
+      
+    User:
+      type: "object"
+      properties:
+        id:
+          type: "integer"
+          format: "int64"
+        username:
+          type: "string"
+        hashedPassword:
+          type: "string"
+        emails:
+          description: |
+            User's email addresses.
+          type: "array"
+          items:
+            type: "string"
+        isModerator:
+          type: "boolean"
+          
+      example:
+        id: 10
+        username: "Sad_Tomato"
+        isModerator: "false"
+    
+    UserKarma:
+      type: "object"
+      properties:
+        userId:
+          type: "integer"
+          format: "int64"
+        karma:
+          type: "integer"
+          format: "int64"
+      example:
+        userId: 10
+        karma: 20
+
+  securitySchemes:
+    JWT:
+      type: apiKey
+      in: header
+      name: access_token
+  responses:
+    InvalidRequestError:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            type: object
+            allOf:
+            - $ref: '#/components/schemas/ErrorMessage'
+            example:
+              code: 404
+              message: "Resource not found"
+    ForbiddenError:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            type: object
+            allOf:
+            - $ref: '#/components/schemas/ErrorMessage'
+            example:
+              code: 403
+              message: "Forbidden: data invalid" 
+    UnauthorizedRequestError:
+      description: Unauthorized request
+      content:
+        application/json:
+          schema:
+            type: object
+            allOf:
+            - $ref: '#/components/schemas/ErrorMessage'
+            example:
+              code: 401
+              message: "Unauthorized request" 
